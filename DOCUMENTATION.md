@@ -137,3 +137,119 @@ docker exec -it <container-id> /bin/sh
 - Docker exec tells container I want to run a command inside my container
 - \-it is short for –interactive and –tty which gives me a interactive terminal by opening a session which I can use like a normal terminal
 - /bin/sh is the shell I want to use which is the default for alpine linux.
+
+**Connecting to a database**  
+Since I have set up a starter kit for my application. I want to connect to a database. I am using postgresql. Ok to be honest I had never installed postgresql in my mac before. Since I had the mac I had been using supabase so there wasn’t any need to install the postgresql. Postgresql is a relational database. I will be using typeorm . TypeORM is the most matured ORM’s as it has been created using typescripts and it integrates well with Nestjs.
+
+At first we need a driver that acts as a bridge between typeorm and postgres. Let's install that .
+
+```shell
+npm install pg
+```
+
+Lets install TypeORM for Nestjs
+
+```ts
+
+npm install --save @nestjs/typeorm typeorm
+```
+
+I have created a config folder inside src where I will add various configuration files. For the database I have created a folder **db** where I will add various configuration files related to the database.  
+Here is my file [db.ts](http://db.ts) which contains following configuration:
+
+```ts
+export const connectionOptions = {
+  type: 'postgres',
+  host: env.DB_HOST,
+  port: Number(env.DB_PORT),
+  username: env.DB_USERNAME,
+  password: env.DB_PASSWORD,
+  database: env.DB_DATABASE,
+  synchronize: false,
+} as const;
+
+export default {
+  ...connectionOptions,
+  //if we don't use autoLoadEntities then we have to add each entity in the entities array.
+  //   entities: [__dirname + '/**/*.entity.{js,ts}'],
+  migrations: [__dirname + '/**/*.migration.{js,ts}'],
+  // autoLoadEntities load all the entities on startup so that its not necessary to add each entity
+  autoLoadEntities: true,
+} as TypeOrmModuleOptions;
+```
+
+As you can see here we have two exports. Why do we need the two exports when we could have written the configuration within the same object. The object connectionOptions is used in files like [app-datasource.ts](http://app-datasource.ts) . I will talk about [app-datasource.ts](http://app-datasource.ts) later on.
+
+In this file everything within the connectionOptions object is normal configuration to connect with the database. Why do I have a \`as const\` used if I am already declaring it as \`const\` ? It is because it treats the object as immutable or readonly and the value of type is "postgres" , not string . If we don't add the const the type of \`type\` is string but it's value can be anything and we don't want that. This configuration is used in \`[app.module.ts](http://app.module.ts)\` where we import the \`TypeOrmModule\` inside the \`AppModule\`.
+
+```ts
+import dataBaseConfig from '@/config/database/db';
+
+TypeOrmModule.forRoot({
+      ...dataBaseConfig,
+ }),
+```
+
+So when the app starts the database will be connected from here using the configurations we provided.
+
+Oh\! I forgot . In Nestjs environment variables aren’t read by default. We must use the \`@nestjs/config\` package. In Node.js applications, it's common to use \`.env\` files, holding key-value pairs where each key represents a particular value, to represent each environment. Running an app in different environments is then just a matter of swapping in the correct \`.env\` file.
+
+A good approach for using this technique in Nest is to create a \`ConfigModule\` that exposes a \`ConfigService\` which loads the appropriate \`.env\` file. While you may choose to write such a module yourself, for convenience Nest provides the \`@nestjs/config\` package out-of-the box.
+
+```ts
+
+npm i --save @nestjs/config
+
+```
+
+This package internally uses \`dotenv\`.
+
+To use this dependency we have to import the module inside \`AppModule\` like we did for TypeOrm.
+
+```ts
+import { ConfigModule } from '@nestjs/config';
+
+@Module({
+  imports: [ConfigModule.forRoot()],
+})
+```
+
+Now if we run the application everything will work. If incase it throws error we have to explicitly import \`dotenv\` package by downloading it by following command.
+
+```ts
+npm install dotenv
+```
+
+I have created a separate \`[env.ts](http://env.ts)\` file to store access to my environment variables . This will be useful later on for validation of environment variables.
+
+```ts
+import * as dotenv from 'dotenv';
+dotenv.config();
+
+export const env = {
+  DB_HOST: process.env.DB_HOST,
+  DB_PORT: process.env.DB_PORT,
+  DB_USERNAME: process.env.DB_USERNAME,
+  DB_PASSWORD: process.env.DB_PASSWORD,
+  DB_DATABASE: process.env.DB_DATABASE,
+};
+```
+
+**Why have I created another file called \`[app-datasource.ts](http://app-datasource.ts)\`?**  
+The \`connectionOptions\` object tells the technique required by Nestjs application required to connect to the database. It is read by the Nestjs application when the application starts. But the server doesn't completely start or never starts during the migration or test cases. For that we create a new \`DataSource\` object which is a standalone object which is not dependent on the Nestjs application. If you see on the \`app-datasource.ts\` file you will see that \`connectionOptions\` is imported there and used to create a new \`DataSource\` object. This is because the \`DataSource\` object is used to create the database tables and run migrations.
+
+```ts
+import { DataSource } from 'typeorm';
+import { connectionOptions } from './db';
+
+const appDataSource = new DataSource({
+  ...connectionOptions,
+  entities: [__dirname + '/**/*.entity.{js,ts}'],
+  migrations: [__dirname + '/**/*.migration.{js,ts}'],
+});
+
+export default appDataSource;
+```
+
+**TypeOrmModuleOptions VS DataSourceOption**  
+\`TypeOrmModuleOption\` is a package provided by Nestjs which tells us how my database connects to my database. It tells NestJS how to manage the TypeORM connection within its module system. \`TypeOrmModuleOption\` extends \`DataSourceOption\` . \`DataSourceOption\` comes directly from the TypeORM package itself. \`DataSourceOption\` defines the fundamental technical properties required to connect to a database.
